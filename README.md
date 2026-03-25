@@ -1,7 +1,8 @@
 ## Quantum Finance Cinematic Simulation
 
-![Quantum Finance Animation](assets/finanças.gif)
-
+<p align="center">
+  <img src="assets/finanças.gif" width="850"/>
+</p>
 
 This project presents a cinematic visualization of financial markets inspired by concepts from quantum mechanics. Instead of modeling price as a deterministic trajectory, the system represents market dynamics as a probabilistic state evolving over time, incorporating uncertainty, regime behavior, and scenario superposition.
 
