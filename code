@@ -1,0 +1,391 @@
+# ============================================================
+# QUANTUM FINANCE CINEMATIC GIF
+# Google Colab Ready
+# ============================================================
+
+!pip -q install pillow imageio
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation, PillowWriter
+from IPython.display import Image, display
+import matplotlib.patheffects as pe
+
+# ============================================================
+# CONFIG
+# ============================================================
+np.random.seed(42)
+
+GIF_NAME = "quantum_finance_cinematic.gif"
+FPS = 20
+N_FRAMES = 260
+FIGSIZE = (14, 8)
+DPI = 120
+
+BG = "#04060b"
+GRID = "#162033"
+TXT = "#eaf2ff"
+SUBTXT = "#9fb3d9"
+
+C_PRICE = "#7df9ff"
+C_GLOW = "#00d9ff"
+C_BAND = "#4e7bff"
+
+C_UP = "#00ff9c"
+C_MID = "#ffe66d"
+C_DOWN = "#ff4d6d"
+
+C_FLASH = "#ffffff"
+
+# ============================================================
+# SYNTHETIC MARKET DATA
+# ============================================================
+n_hist = 160
+n_future = 60
+
+t_hist = np.arange(n_hist)
+
+trend = 100 + 0.10 * t_hist
+cycle1 = 3.3 * np.sin(t_hist / 9.0)
+cycle2 = 1.5 * np.sin(t_hist / 21.0 + 0.7)
+noise = np.cumsum(np.random.normal(0, 0.12, n_hist))
+price = trend + cycle1 + cycle2 + noise
+
+# quantum uncertainty band
+unc = 0.9 + 0.45 * (np.sin(np.linspace(0, 5*np.pi, n_hist))**2) \
+          + 0.18 * (np.cos(np.linspace(0, 2.5*np.pi, n_hist))**2)
+
+t_future = np.arange(n_hist - 1, n_hist - 1 + n_future)
+base = price[-1]
+
+branch_up = base + np.linspace(0, 7.0, n_future) + 1.8*np.sin(np.linspace(0, 2.7, n_future))
+branch_mid = base + np.linspace(0, 2.7, n_future) + 1.0*np.sin(np.linspace(0, 2.5, n_future) + 0.8)
+branch_down = base + np.linspace(0, -4.0, n_future) + 1.5*np.sin(np.linspace(0, 2.6, n_future) + 1.5)
+
+# ============================================================
+# TIMELINE
+# ============================================================
+F_HISTORY_END = 120
+F_SCENARIOS_START = 105
+F_COLLAPSE = 210
+F_END = N_FRAMES - 1
+
+# ============================================================
+# FIGURE
+# ============================================================
+fig, ax = plt.subplots(figsize=FIGSIZE, dpi=DPI)
+fig.patch.set_facecolor(BG)
+ax.set_facecolor(BG)
+
+for spine in ax.spines.values():
+    spine.set_visible(False)
+
+ymin = min(price.min() - 7, branch_down.min() - 5)
+ymax = max(price.max() + 8, branch_up.max() + 5)
+
+ax.set_xlim(0, n_hist + n_future + 5)
+ax.set_ylim(ymin, ymax)
+ax.grid(True, color=GRID, alpha=0.35, linewidth=0.7)
+
+ax.tick_params(colors=SUBTXT, labelsize=9)
+ax.set_xlabel("Tempo", color=SUBTXT, fontsize=11)
+ax.set_ylabel("Preço / amplitude esperada", color=SUBTXT, fontsize=11)
+
+title = ax.set_title(
+    "Quantum Finance",
+    fontsize=24, color=TXT, pad=18
+)
+title.set_path_effects([pe.withStroke(linewidth=6, foreground="#0b1220")])
+
+subtitle = ax.text(
+    0.5, 1.01,
+    "Superposição de cenários, incerteza e colapso de mercado",
+    transform=ax.transAxes,
+    ha="center", va="bottom",
+    fontsize=11, color=SUBTXT
+)
+
+# ============================================================
+# BACKGROUND PARTICLES
+# ============================================================
+n_particles = 55
+px = np.random.uniform(0, n_hist + n_future, n_particles)
+py = np.random.uniform(ymin, ymax, n_particles)
+ps = np.random.uniform(8, 22, n_particles)
+pphase = np.random.uniform(0, 2*np.pi, n_particles)
+
+particles = ax.scatter(px, py, s=ps, alpha=0.0)
+
+# ============================================================
+# LINES
+# ============================================================
+price_glow_big, = ax.plot([], [], lw=10, alpha=0.08, color=C_GLOW, solid_capstyle="round")
+price_glow_mid, = ax.plot([], [], lw=6, alpha=0.16, color=C_GLOW, solid_capstyle="round")
+price_line, = ax.plot([], [], lw=2.2, color=C_PRICE, solid_capstyle="round")
+
+band_upper, = ax.plot([], [], lw=1.0, color=C_BAND, alpha=0.35)
+band_lower, = ax.plot([], [], lw=1.0, color=C_BAND, alpha=0.35)
+fill_state = {"artist": None}
+
+up_glow, = ax.plot([], [], lw=8, alpha=0.08, color=C_UP, ls="--")
+up_line, = ax.plot([], [], lw=2.5, color=C_UP, ls="--")
+
+mid_glow, = ax.plot([], [], lw=8, alpha=0.08, color=C_MID, ls="--")
+mid_line, = ax.plot([], [], lw=2.5, color=C_MID, ls="--")
+
+down_glow, = ax.plot([], [], lw=8, alpha=0.08, color=C_DOWN, ls="--")
+down_line, = ax.plot([], [], lw=2.5, color=C_DOWN, ls="--")
+
+collapse_glow, = ax.plot([], [], marker="o", ms=28, alpha=0.0, color=C_FLASH, linestyle="None")
+collapse_point, = ax.plot([], [], marker="o", ms=8, alpha=0.0, color=C_FLASH, linestyle="None")
+
+# flash overlay
+flash = ax.imshow(
+    np.ones((2, 2, 3)),
+    extent=[0, n_hist + n_future + 5, ymin, ymax],
+    alpha=0.0,
+    aspect="auto",
+    zorder=20
+)
+
+# measurement line
+measure_line = ax.axvline(n_hist - 1, color="#dce6ff", lw=1.2, ls=":", alpha=0.18)
+
+# labels
+label_up = ax.text(0, 0, "Bull", color=C_UP, fontsize=11, alpha=0.0)
+label_mid = ax.text(0, 0, "Neutral", color=C_MID, fontsize=11, alpha=0.0)
+label_down = ax.text(0, 0, "Bear", color=C_DOWN, fontsize=11, alpha=0.0)
+
+for txt in [label_up, label_mid, label_down]:
+    txt.set_path_effects([pe.withStroke(linewidth=4, foreground=BG)])
+
+# HUD
+hud = ax.text(
+    0.02, 0.96, "",
+    transform=ax.transAxes,
+    ha="left", va="top",
+    color=TXT, fontsize=11,
+    bbox=dict(boxstyle="round,pad=0.5", facecolor="#09111f", edgecolor="#1c2d4a", alpha=0.82)
+)
+
+# ============================================================
+# HELPERS
+# ============================================================
+def smoothstep(x, x0, x1):
+    if x <= x0:
+        return 0.0
+    if x >= x1:
+        return 1.0
+    u = (x - x0) / (x1 - x0)
+    return u*u*(3 - 2*u)
+
+def flash_pulse(frame, center, width=7):
+    d = abs(frame - center)
+    if d > width:
+        return 0.0
+    return (1 - d/width)**2
+
+# ============================================================
+# INIT
+# ============================================================
+def init():
+    for artist in [
+        price_glow_big, price_glow_mid, price_line,
+        band_upper, band_lower,
+        up_glow, up_line, mid_glow, mid_line, down_glow, down_line,
+        collapse_glow, collapse_point
+    ]:
+        artist.set_data([], [])
+
+    hud.set_text("")
+    particles.set_alpha(0.0)
+    flash.set_alpha(0.0)
+
+    label_up.set_alpha(0.0)
+    label_mid.set_alpha(0.0)
+    label_down.set_alpha(0.0)
+
+    return (
+        price_glow_big, price_glow_mid, price_line,
+        band_upper, band_lower,
+        up_glow, up_line, mid_glow, mid_line, down_glow, down_line,
+        collapse_glow, collapse_point,
+        particles, flash, hud,
+        label_up, label_mid, label_down
+    )
+
+# ============================================================
+# UPDATE
+# ============================================================
+def update(frame):
+    if fill_state["artist"] is not None:
+        fill_state["artist"].remove()
+        fill_state["artist"] = None
+
+    # --------------------------------------------------------
+    # particles
+    # --------------------------------------------------------
+    alpha_particles = 0.05 + 0.10 * (0.5 + 0.5*np.sin(frame/10 + pphase))
+    particles.set_alpha(alpha_particles)
+
+    # --------------------------------------------------------
+    # historical build
+    # --------------------------------------------------------
+    hist_progress = smoothstep(frame, 0, F_HISTORY_END)
+    hist_k = max(2, int(hist_progress * n_hist))
+
+    xh = t_hist[:hist_k]
+    yh = price[:hist_k]
+    uh = unc[:hist_k]
+
+    price_glow_big.set_data(xh, yh)
+    price_glow_mid.set_data(xh, yh)
+    price_line.set_data(xh, yh)
+
+    band_upper.set_data(xh, yh + uh)
+    band_lower.set_data(xh, yh - uh)
+
+    fill_state["artist"] = ax.fill_between(
+        xh, yh - uh, yh + uh,
+        color=C_BAND, alpha=0.10
+    )
+
+    # --------------------------------------------------------
+    # future branches
+    # --------------------------------------------------------
+    scen_progress = smoothstep(frame, F_SCENARIOS_START, F_COLLAPSE - 10)
+    fk = int(scen_progress * n_future)
+
+    if fk > 1:
+        xf = t_future[:fk]
+
+        up_glow.set_data(xf, branch_up[:fk])
+        up_line.set_data(xf, branch_up[:fk])
+
+        mid_glow.set_data(xf, branch_mid[:fk])
+        mid_line.set_data(xf, branch_mid[:fk])
+
+        down_glow.set_data(xf, branch_down[:fk])
+        down_line.set_data(xf, branch_down[:fk])
+
+        lab_alpha = min(1.0, scen_progress * 1.4)
+        label_up.set_position((xf[-1] + 1.5, branch_up[fk-1]))
+        label_mid.set_position((xf[-1] + 1.5, branch_mid[fk-1]))
+        label_down.set_position((xf[-1] + 1.5, branch_down[fk-1]))
+
+        label_up.set_alpha(lab_alpha)
+        label_mid.set_alpha(lab_alpha)
+        label_down.set_alpha(lab_alpha)
+    else:
+        up_glow.set_data([], [])
+        up_line.set_data([], [])
+        mid_glow.set_data([], [])
+        mid_line.set_data([], [])
+        down_glow.set_data([], [])
+        down_line.set_data([], [])
+        label_up.set_alpha(0.0)
+        label_mid.set_alpha(0.0)
+        label_down.set_alpha(0.0)
+
+    # --------------------------------------------------------
+    # collapse
+    # --------------------------------------------------------
+    if frame >= F_COLLAPSE:
+        collapse_progress = smoothstep(frame, F_COLLAPSE, F_END)
+        idx = min(n_future - 1, int(collapse_progress * (n_future - 1)))
+        xc = t_future[idx]
+        yc = branch_mid[idx]
+
+        collapse_glow.set_data([xc], [yc])
+        collapse_point.set_data([xc], [yc])
+
+        collapse_glow.set_alpha(0.18 + 0.12*np.sin(frame/3)**2)
+        collapse_point.set_alpha(1.0)
+
+        # dim non-realized branches
+        up_line.set_alpha(max(0.12, 1.0 - 0.80 * collapse_progress))
+        down_line.set_alpha(max(0.12, 1.0 - 0.80 * collapse_progress))
+        mid_line.set_alpha(1.0)
+
+        up_glow.set_alpha(max(0.02, 0.08 - 0.05 * collapse_progress))
+        down_glow.set_alpha(max(0.02, 0.08 - 0.05 * collapse_progress))
+        mid_glow.set_alpha(0.12)
+
+        # flash effect
+        flash_alpha = 0.55 * flash_pulse(frame, F_COLLAPSE, width=9)
+        flash.set_alpha(flash_alpha)
+    else:
+        collapse_glow.set_data([], [])
+        collapse_point.set_data([], [])
+        collapse_glow.set_alpha(0.0)
+        collapse_point.set_alpha(0.0)
+        flash.set_alpha(0.0)
+
+        up_line.set_alpha(1.0)
+        down_line.set_alpha(1.0)
+        mid_line.set_alpha(1.0)
+        up_glow.set_alpha(0.08)
+        down_glow.set_alpha(0.08)
+        mid_glow.set_alpha(0.08)
+
+    # --------------------------------------------------------
+    # camera feeling: mild zoom by xlim animation
+    # --------------------------------------------------------
+    zoom = 1 - 0.06 * smoothstep(frame, F_SCENARIOS_START, F_END)
+    x_max = (n_hist + n_future + 5) * zoom + (n_hist + n_future + 5) * (1 - zoom)
+    ax.set_xlim(0, x_max)
+
+    # --------------------------------------------------------
+    # HUD
+    # --------------------------------------------------------
+    vol = unc[min(hist_k-1, n_hist-1)]
+    regime = 0.5 + 0.5*np.sin(frame / 16)
+
+    if frame < F_SCENARIOS_START:
+        phase_txt = "Fase 1  |  Leitura do mercado"
+        desc_txt = "Estado observado como distribuição"
+    elif frame < F_COLLAPSE:
+        phase_txt = "Fase 2  |  Superposição"
+        desc_txt = "Múltiplos futuros coexistem"
+    else:
+        phase_txt = "Fase 3  |  Colapso"
+        desc_txt = "Um estado torna-se realizado"
+
+    hud.set_text(
+        f"{phase_txt}\n"
+        f"{desc_txt}\n\n"
+        f"Volatilidade efetiva: {vol:.2f}\n"
+        f"Score de regime: {regime:.2f}"
+    )
+
+    return (
+        price_glow_big, price_glow_mid, price_line,
+        band_upper, band_lower,
+        up_glow, up_line, mid_glow, mid_line, down_glow, down_line,
+        collapse_glow, collapse_point,
+        particles, flash, hud,
+        label_up, label_mid, label_down
+    )
+
+# ============================================================
+# ANIMATION
+# ============================================================
+anim = FuncAnimation(
+    fig,
+    update,
+    init_func=init,
+    frames=N_FRAMES,
+    interval=1000/FPS,
+    blit=False
+)
+
+# ============================================================
+# SAVE GIF
+# ============================================================
+writer = PillowWriter(fps=FPS)
+anim.save(GIF_NAME, writer=writer)
+
+plt.close(fig)
+
+display(Image(filename=GIF_NAME))
+print(f"GIF salvo como: {GIF_NAME}")
